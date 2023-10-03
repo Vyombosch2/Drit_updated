@@ -23,6 +23,7 @@ class VisionTransformer(timm.models.vision_transformer.VisionTransformer):
     def __init__(self, global_pool=False, **kwargs):
         super(VisionTransformer, self).__init__(**kwargs)
         self.global_pool = global_pool
+        self.channel_change = nn.Linear(1024,256,bias=True).cuda()
         if self.global_pool:
             norm_layer = kwargs['norm_layer']
             embed_dim = kwargs['embed_dim']
@@ -43,13 +44,10 @@ class VisionTransformer(timm.models.vision_transformer.VisionTransformer):
 
         if self.global_pool:
             x = x[:, 1:, :].mean(dim=1)  # global pool without cls token
-            outcome = self.fc_norm(x)
         else:
             x = self.norm(x)
-            outcome = x[:, 0]
         x= torch.reshape(x[:,1:,:],(1,14,14,1024))
-        channel_change = nn.Linear(1024,256,bias=True).cuda()
-        x= channel_change(x)
+        x= self.channel_change(x)
         x = x.permute(0,3,1,2)
         return x
 

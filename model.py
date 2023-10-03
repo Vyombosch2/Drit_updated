@@ -1,4 +1,4 @@
-import networks
+import network_old as networks
 import torch
 import torch.nn as nn
 

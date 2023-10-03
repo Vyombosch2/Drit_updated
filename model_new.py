@@ -4,7 +4,6 @@ import torch.nn as nn
 import models_vit
 def interpolate_pos_embed(model, checkpoint_model):
   if 'pos_embed' in checkpoint_model:
-    print("runnning here")
     pos_embed_checkpoint = checkpoint_model['pos_embed']
     embedding_size = pos_embed_checkpoint.shape[-1]
     num_patches = model.patch_embed.num_patches
@@ -15,17 +14,16 @@ def interpolate_pos_embed(model, checkpoint_model):
     new_size = int(num_patches ** 0.5)
     # class_token and dist_token are kept unchanged
     if orig_size != new_size:
-        print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
-        extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
-        # only the position tokens are interpolated
-        pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
-        pos_tokens = pos_tokens.reshape(-1, orig_size, orig_size, embedding_size).permute(0, 3, 1, 2)
-        pos_tokens = torch.nn.functional.interpolate(
-            pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
-        pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
-        new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
-        checkpoint_model['pos_embed'] = new_pos_embed
-
+      print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
+      extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
+      # only the position tokens are interpolated
+      pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
+      pos_tokens = pos_tokens.reshape(-1, orig_size, orig_size, embedding_size).permute(0, 3, 1, 2)
+      pos_tokens = torch.nn.functional.interpolate(pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
+      pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
+      new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
+      checkpoint_model['pos_embed'] = new_pos_embed
+  return(checkpoint_model)
 class DRIT(nn.Module):
   def __init__(self, opts):
     super(DRIT, self).__init__()
@@ -53,15 +51,15 @@ class DRIT(nn.Module):
         num_classes=8,
         drop_path_rate=0.1
     )
-    enc_share = []
-    for i in range(0, 1):
-      # enc_share += [nn.Linear(1024,256,bias=True)]
-      enc_share += [networks.INSResBlock(256, 256)]
-      enc_share += [networks.GaussianNoiseLayer()]
-      self.conv_share = nn.Sequential(*enc_share)
+    # enc_share = []
+    # for i in range(0, 1):
+    #   # enc_share += [nn.Linear(1024,256,bias=True)]
+    #   enc_share += [networks.INSResBlock(256, 256)]
+    #   enc_share += [networks.GaussianNoiseLayer()]
+    #   self.conv_share = nn.Sequential(*enc_share)
     #self.enc_c = networks.E_content(opts.input_dim_a, opts.input_dim_b)
     checkpoint = torch.load("/home/ayg2kor/mae_visualize_vit_large.pth", map_location='cpu')
-
+    self.conv_share = networks.E_content_share(opts.input_dim_a,opts.input_dim_b)
     print("Load pre-trained checkpoint from: /home/ayg2kor/mae_visualize_vit_large.pth" )
     checkpoint_model = checkpoint['model']
     state_dict = self.enc_c_a.state_dict()
@@ -71,11 +69,10 @@ class DRIT(nn.Module):
             del checkpoint_model[k]
 
     # interpolate position embedding
-    interpolate_pos_embed(self.enc_c_a, checkpoint_model)
+    checkpoint_model = interpolate_pos_embed(self.enc_c_a, checkpoint_model)
 
     # load pre-trained model
     msg = self.enc_c_a.load_state_dict(checkpoint_model, strict=False)
-    print(msg)
     print("Load pre-trained checkpoint from: /home/ayg2kor/mae_visualize_vit_large.pth" )
     checkpoint_model = checkpoint['model']
     print(checkpoint_model.keys())
@@ -86,11 +83,10 @@ class DRIT(nn.Module):
             del checkpoint_model[k]
 
     # interpolate position embedding
-    interpolate_pos_embed(self.enc_c_b, checkpoint_model)
+    checkpoint_model = interpolate_pos_embed(self.enc_c_b, checkpoint_model)
 
     # load pre-trained model
     msg = self.enc_c_b.load_state_dict(checkpoint_model, strict=False)
-    print(msg)
     if self.concat:
       self.enc_a = networks.E_attr_concat(opts.input_dim_a, opts.input_dim_b, self.nz, \
           norm_layer=None, nl_layer=networks.get_non_linearity(layer_type='lrelu'))
@@ -111,7 +107,7 @@ class DRIT(nn.Module):
     self.disContent_opt = torch.optim.Adam(self.disContent.parameters(), lr=lr_dcontent, betas=(0.5, 0.999), weight_decay=0.0001)
     self.enc_c_a_opt = torch.optim.Adam(self.enc_c_a.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.enc_c_b_opt = torch.optim.Adam(self.enc_c_b.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
-    self.conv_share_opt =torch.optim.Adam(self.enc_c_b.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
+    self.conv_share_opt = torch.optim.Adam(self.conv_share.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.enc_a_opt = torch.optim.Adam(self.enc_a.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
     self.gen_opt = torch.optim.Adam(self.gen.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0.0001)
 
@@ -126,8 +122,9 @@ class DRIT(nn.Module):
     self.disB2.apply(networks.gaussian_weights_init)
     self.disContent.apply(networks.gaussian_weights_init)
     self.gen.apply(networks.gaussian_weights_init)
-    self.enc_c_a.apply(networks.gaussian_weights_init)
-    self.enc_c_b.apply(networks.gaussian_weights_init)
+    # self.enc_c_a.apply(networks.gaussian_weights_init)
+    # self.enc_c_b.apply(networks.gaussian_weights_init)
+    self.conv_share.apply(networks.gaussian_weights_init)
     self.enc_a.apply(networks.gaussian_weights_init)
 
   def set_scheduler(self, opts, last_ep=0):
@@ -142,15 +139,16 @@ class DRIT(nn.Module):
     self.enc_a_sch = networks.get_scheduler(self.enc_a_opt, opts, last_ep)
     self.gen_sch = networks.get_scheduler(self.gen_opt, opts, last_ep)
 
-  def setgpu(self, gpu):
-    self.gpu = gpu
+  def setgpu(self, gpu1,gpu2):
+    self.gpu = gpu1
+    self.gpu2 = gpu2
     self.disA.cuda(self.gpu)
     self.disB.cuda(self.gpu)
     self.disA2.cuda(self.gpu)
     self.disB2.cuda(self.gpu)
     self.disContent.cuda(self.gpu)
-    self.enc_c_a.cuda(self.gpu)
-    self.enc_c_b.cuda(self.gpu)
+    self.enc_c_a.cuda(self.gpu2)
+    self.enc_c_b.cuda(self.gpu2)
     self.enc_a.cuda(self.gpu)
     self.gen.cuda(self.gpu)
     self.conv_share.cuda(self.gpu)
@@ -199,11 +197,14 @@ class DRIT(nn.Module):
     self.real_B_random = real_B[half_size:]
 
     # get encoded z_c
-    self.z_content_a = self.enc_c_a.forward_features(self.real_A_encoded)
-    self.z_content_b = self.enc_c_b.forward_features(self.real_B_encoded)
-    self.z_content_a = self.conv_share(self.z_content_a)
-    self.z_content_b = self.conv_share(self.z_content_b)
-    
+    self.real_A_encoded = self.real_A_encoded.cuda(self.gpu2)
+    self.real_B_encoded = self.real_A_encoded.cuda(self.gpu2)
+    z_content_a_1 = self.enc_c_a.forward_features(self.real_A_encoded)
+    z_content_b_1 = self.enc_c_b.forward_features(self.real_B_encoded)
+    self.real_A_encoded = self.real_A_encoded.cuda(self.gpu)
+    self.real_B_encoded = self.real_A_encoded.cuda(self.gpu)
+    self.z_content_a,self.z_content_b = self.conv_share(z_content_a_1.cuda(self.gpu),z_content_b_1.cuda(self.gpu))
+       
 
     # get encoded z_a
     if self.concat:
@@ -244,13 +245,15 @@ class DRIT(nn.Module):
       self.fake_B_encoded, self.fake_BB_encoded, self.fake_B_random = torch.split(output_fakeB, self.z_content_a.size(0), dim=0)
       self.fake_A_encoded_s, self.fake_AA_encoded_s, self.fake_A_random_s = torch.split(output_fakeA_s, self.z_content_a.size(0), dim=0)
       self.fake_B_encoded_s, self.fake_BB_encoded_s, self.fake_B_random_s = torch.split(output_fakeB_s, self.z_content_a.size(0), dim=0)
-
     # get reconstructed encoded z_c
-    self.z_content_recon_b = self.enc_c_a.forward_features(self.fake_A_encoded)
-    self.z_content_recon_a = self.enc_c_b.forward_features(self.fake_B_encoded)
+    self.fake_A_encoded = self.fake_A_encoded.cuda(self.gpu2)
+    self.fake_B_encoded = self.fake_B_encoded.cuda(self.gpu2)
+    z_content_recon_b_1 = self.enc_c_a.forward_features(self.fake_A_encoded)
+    z_content_recon_a_1 = self.enc_c_b.forward_features(self.fake_B_encoded)
+    self.fake_A_encoded = self.fake_A_encoded.cuda(self.gpu)
+    self.fake_B_encoded = self.fake_B_encoded.cuda(self.gpu)
 
-    self.z_content_recon_b = self.conv_share(self.z_content_recon_b)
-    self.z_content_recon_a = self.conv_share(self.z_content_recon_a)
+    self.z_content_recon_b,self.z_content_recon_a = self.conv_share(z_content_recon_b_1.cuda(self.gpu),z_content_recon_a_1.cuda(self.gpu)) 
     
     # get reconstructed encoded z_a
     if self.concat:
@@ -285,10 +288,14 @@ class DRIT(nn.Module):
     self.real_A_encoded = self.input_A[0:half_size]
     self.real_B_encoded = self.input_B[0:half_size]
     # get encoded z_c
-    self.z_content_a = self.enc_c_a.forward_features(self.real_A_encoded)
-    self.z_content_b = self.enc_c_b.forward_features(self.real_B_encoded)
-    self.z_content_a = self.conv_share(self.z_content_a)
-    self.z_content_b = self.conv_share(self.z_content_b)
+    self.real_A_encoded = self.real_A_encoded.cuda(self.gpu2)
+    self.real_B_encoded = self.real_A_encoded.cuda(self.gpu2)
+    z_content_a = self.enc_c_a.forward_features(self.real_A_encoded)
+    z_content_b = self.enc_c_b.forward_features(self.real_B_encoded)
+    self.real_A_encoded = self.real_A_encoded.cuda(self.gpu)
+    self.real_B_encoded = self.real_A_encoded.cuda(self.gpu)
+    self.z_content_a,self.z_content_b = self.conv_share(z_content_a.cuda(self.gpu),z_content_b.cuda(self.gpu))
+    
 
   def update_D_content(self, image_a, image_b):
     self.input_A = image_a
@@ -455,6 +462,7 @@ class DRIT(nn.Module):
     loss_G = 0
     for out_a in outs_fake:
       outputs_fake = torch.sigmoid(out_a)
+      print(out_a.shape)
       all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
       loss_G += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
     return loss_G

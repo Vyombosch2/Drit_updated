@@ -35,7 +35,8 @@ class TrainOptions():
     self.parser.add_argument('--n_ep_decay', type=int, default=45, help='epoch start decay learning rate, set -1 if no decay')
     self.parser.add_argument('--resume', type=str, default=None, help='specified the dir of saved models for resume the training')
     self.parser.add_argument('--d_iter', type=int, default=3, help='# of iterations for updating content discriminator')
-    self.parser.add_argument('--gpu', type=int, default=0, help='gpu')
+    self.parser.add_argument('--gpu1', type=int, default=0, help='gpu')
+    self.parser.add_argument('--gpu2', type=int, default=1, help='gpu')
 
   def parse(self):
     self.opt = self.parser.parse_args()

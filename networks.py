@@ -95,7 +95,6 @@ class E_content(nn.Module):
   def forward(self, xa, xb):
     outputA = self.convA(xa)
     outputB = self.convB(xb)
-    print(outputA.shape)
     outputA = self.conv_share(outputA)
     outputB = self.conv_share(outputB)
     return outputA, outputB
@@ -109,7 +108,24 @@ class E_content(nn.Module):
     outputB = self.convB(xb)
     outputB = self.conv_share(outputB)
     return outputB
-
+class E_content_share(nn.Module):
+  def __init__(self, input_dim_a, input_dim_b):
+    super(E_content_share, self).__init__()
+    enc_share = []
+    for i in range(0, 1):
+      enc_share += [INSResBlock(256, 256)]
+      enc_share += [GaussianNoiseLayer()]
+      self.shared_conv = nn.Sequential(*enc_share)
+  def forward(self,xa,xb):
+    outputA = self.shared_conv(xa)
+    outputB = self.shared_conv(xb)
+    return outputA, outputB
+  def forward_a(self, xa):
+    outputA = self.shared_conv(xa)
+    return outputA
+  def forward_b(self, xb):
+    outputB = self.shared_conv(xb)
+    return outputB
 class E_attr(nn.Module):
   def __init__(self, input_dim_a, input_dim_b, output_nc=8):
     super(E_attr, self).__init__()
@@ -242,13 +258,13 @@ class G(nn.Module):
 
     decA5 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
     decA5_1 = [nn.ConvTranspose2d(tch//2, output_dim_a, kernel_size=1, stride=1, padding=0), nn.Tanh()]
-    decA5_2 = ReLUINSConvTranspose2d(tch//2, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
+    decA5_2 = ReLUINSConvTranspose2d(tch//2, tch//2, kernel_size=5, stride=4, padding=1, output_padding=1)
     tch = tch//2
     decA6 =[]
     decA6 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
     tch = tch//2
     decA6_2 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
-    decA6 += [nn.ConvTranspose2d(tch, tch, kernel_size=1, stride=1, padding=0)]
+    decA6 += [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)]
     decA6_2 += [nn.ConvTranspose2d(tch//2, output_dim_a, kernel_size=1, stride=1, padding=0)]
     decA6_2 += [nn.Tanh()]
     self.decA5 = decA5
@@ -280,7 +296,6 @@ class G(nn.Module):
     self.decB6 = nn.Sequential(*decB6)
     self.decB6_2 = nn.Sequential(*decB6_2)
 
-
     self.mlpA = nn.Sequential(
         nn.Linear(8, 256),
         nn.ReLU(inplace=True),
@@ -296,6 +311,20 @@ class G(nn.Module):
     return
 
   def forward_a(self, x, z):
+    # z = self.mlpA(z)
+    # z1, z2, z3, z4 = torch.split(z, self.tch_add, dim=1)
+    # z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
+    # out1 = self.decA1(x, z1)
+    # out2 = self.decA2(out1, z2)
+    # out3 = self.decA3(out2, z3)
+    # out4 = self.decA4(out3, z4)
+    # out5 = self.decA5(out4)
+    # out5_1 = self.decA5_2(out5)
+    # out5_img = self.decA5_1(out5_1)
+    # out6 = self.decA6(out5_1)
+    # out6_1 = self.decA6_2(out6)
+    # print("here ",out4.shape,out5.shape,out5_1.shape,out5_img.shape)
+
     z = self.mlpA(z)
     z1, z2, z3, z4 = torch.split(z, self.tch_add, dim=1)
     z1, z2, z3, z4 = z1.contiguous(), z2.contiguous(), z3.contiguous(), z4.contiguous()
@@ -304,12 +333,13 @@ class G(nn.Module):
     out3 = self.decA3(out2, z3)
     out4 = self.decA4(out3, z4)
     out5 = self.decA5(out4)
-    out5_1 = self.decA5_2(out5)
-    out5_img = self.decA5_1(out5_1)
-    out6 = self.decA6(out5_1)
-    out6_1 = self.decA6_2(out6)
-    print(out1.shape,out2.shape,out3.shape,out4.shape,out5.shape,out5_1.shape,out6.shape,out6_1.shape)
-    return out6_1, out5_img
+    out5_2 = self.decA5_2(out5)
+    #out5_2 = self.decA5_2(out5_1)
+    out5_img = self.decA5_1(out5_2)
+    out6 = self.decA6(out5_2)
+    #print("here ",out4.shape,out5.shape,out5_2.shape,out5_img.shape,out6.shape)
+    #out6_1 = self.decA6_2(out6)
+    return out6, out5_img
 
   def forward_b(self, x, z):
     z = self.mlpB(z)
@@ -339,11 +369,11 @@ class G_concat(nn.Module):
     for i in range(0, 3):
       decA1 += [INSResBlock(tch, tch)]
     tch = tch + self.nz
-    decA2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
+    decA2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=5, stride=4, padding=1, output_padding=1)
     decA2_1 = [nn.ConvTranspose2d(tch//2, output_dim_a, kernel_size=1, stride=1, padding=0)] + [nn.Tanh()]
     tch = tch//2
     tch = tch + self.nz
-    decA3 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    decA3 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=5, stride=4, padding=1, output_padding=1)]
     tch = tch//2
     tch = tch + self.nz
     decA4 = [nn.ConvTranspose2d(tch, output_dim_a, kernel_size=1, stride=1, padding=0)] + [nn.Tanh()]
@@ -358,11 +388,11 @@ class G_concat(nn.Module):
     for i in range(0, 3):
       decB1 += [INSResBlock(tch, tch)]
     tch = tch + self.nz
-    decB2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)
+    decB2 = ReLUINSConvTranspose2d(tch, tch//2, kernel_size=5, stride=4, padding=1, output_padding=1)
     decB2_1 = [nn.ConvTranspose2d(tch//2, output_dim_b, kernel_size=1, stride=1, padding=0)] + [nn.Tanh()]
     tch = tch//2
     tch = tch + self.nz
-    decB3 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=3, stride=2, padding=1, output_padding=1)]
+    decB3 = [INSResBlock(tch, tch), INSResBlock(tch, tch), ReLUINSConvTranspose2d(tch, tch//2, kernel_size=5, stride=4, padding=1, output_padding=1)]
     tch = tch//2
     tch = tch + self.nz
     decB4 = [nn.ConvTranspose2d(tch, output_dim_b, kernel_size=1, stride=1, padding=0)]+[nn.Tanh()]
@@ -387,7 +417,7 @@ class G_concat(nn.Module):
     z_img4 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out3.size(2), out3.size(3))
     x_and_z4 = torch.cat([out3, z_img4], 1)
     out4 = self.decA4(x_and_z4)
-    print("out1",x.shape,out1.shape,out2.shape,out3.shape,out4.shape)
+    print(out0.shape,out1.shape,out2.shape,out3.shape,out4.shape)
     return out4, out2_img
 
   def forward_b(self, x, z):
@@ -590,7 +620,6 @@ class MisINSResBlock(nn.Module):
     residual = x
     z_expand = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
     o1 = self.conv1(x)
-    print(o1.shape)
     o2 = self.blk1(torch.cat([o1, z_expand], dim=1))
     o3 = self.conv2(o2)
     out = self.blk2(torch.cat([o3, z_expand], dim=1))
