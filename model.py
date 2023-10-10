@@ -201,8 +201,6 @@ class DRIT(nn.Module):
     self.real_B_encoded = self.input_B[0:half_size]
     # get encoded z_c
     self.z_content_a, self.z_content_b = self.enc_c.forward(self.real_A_encoded, self.real_B_encoded)
-    print(self.z_content_a.shape)
-    print(self.z_content_b.shape)
 
   def update_D_content(self, image_a, image_b):
     self.input_A = image_a

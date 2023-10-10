@@ -462,7 +462,6 @@ class DRIT(nn.Module):
     loss_G = 0
     for out_a in outs_fake:
       outputs_fake = torch.sigmoid(out_a)
-      print(out_a.shape)
       all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
       loss_G += nn.functional.binary_cross_entropy(outputs_fake, all_ones)
     return loss_G

@@ -417,7 +417,6 @@ class G_concat(nn.Module):
     z_img4 = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), out3.size(2), out3.size(3))
     x_and_z4 = torch.cat([out3, z_img4], 1)
     out4 = self.decA4(x_and_z4)
-    print(out0.shape,out1.shape,out2.shape,out3.shape,out4.shape)
     return out4, out2_img
 
   def forward_b(self, x, z):
